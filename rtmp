@@ -1,0 +1,113 @@
+#!/bin/sh
+#check the new location 
+action=
+check=
+help_entry(){
+	df -h
+	echo ""
+	echo "Usage: $(basename $0) <location> <size>"
+	echo
+	echo "[Caution]:size of /tmp in MB "
+	echo -e "\tMin. size = 1000MB"
+	echo -e "\tMax. size = 10000MB"
+	exit 0
+}
+#create mounted /tmp if it isn't exist
+create_new(){
+	echo "<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
+	dd if=/dev/zero of=$location/tmpDSK bs=1M count=$size &> /dev/null
+	mkfs.ext3 -F $location/tmpDSK &> /dev/null
+	mount -o loop,rw,noexec,nosuid $location/tmpDSK /tmp
+	mount -o bind,rw,noexec,nosuid /tmp /var/tmp
+	chmod 1777 /tmp /var/tmp
+	sed --in-place=.orig '/^.*\/tmp\s.*$/d' /etc/fstab
+	mount -a
+	echo "$location/tmpDSK		/tmp 	        ext3 	defaults,loop,rw,noexec,nosuid 0 0" >> /etc/fstab
+	echo "/tmp 		        /var/tmp 	ext3 	defaults,bind,rw,noexec,nosuid 0 0" >> /etc/fstab
+	echo "Successfully create /tmp"
+}
+#modify the existing mounted /tmp
+modify_existing(){
+		echo "<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
+		
+		dd if=/dev/zero of=$location/tmpDSK bs=1M count=$size &> /dev/null
+		mkfs -t ext3 -F -j $location/tmpDSK &> /dev/null
+		/etc/init.d/mysql stop &> /dev/null
+		/etc/init.d/httpd stop &> /dev/null
+		for i in $(ps aux | grep tailwatchd |grep -v grep | awk '{print$2}');do kill -9 ${i};done
+		fuser -kcu /tmp/ -TERM &> /dev/null
+		sleep 5
+		for i in $(df -h |grep tmp |grep -v tmpfs |awk '{print$1}');do rm -rf ${i};done
+		if umount /tmp &>/dev/null
+			then
+				umount /var/tmp &>/dev/null
+				echo "/tmp unmounted successfully, performing expansion operations now."
+				if mount -o loop,rw,noexec,nosuid $location/tmpDSK /tmp
+					then
+						mount -o bind,rw,noexec,nosuid /tmp /var/tmp
+						chmod 1777 /tmp /var/tmp
+						sed --in-place=.orig '/^.*\/tmp\s.*$/d' /etc/fstab
+						echo "$location/tmpDSK		/tmp 	        ext3 	defaults,loop,rw,noexec,nosuid 0 0" >> /etc/fstab
+						echo "/tmp 		        /var/tmp 	ext3 	defaults,bind,rw,noexec,nosuid 0 0" >> /etc/fstab
+					else
+						echo "Something went wrong trying to re-mount /tmp. Please try re-running the script"
+						/etc/init.d/mysql start &> /dev/null
+						/etc/init.d/httpd start &> /dev/null
+						exit 2
+        			fi
+			# Restart the services we stopped earlier
+			/etc/init.d/mysql start &> /dev/null
+			/etc/init.d/httpd start &> /dev/null
+			echo
+			echo "SUCCESSFULLY RESIZING /tmp"
+		else
+			echo "Problem stopping processes using /tmp. Please examine the output of \`lsof|grep /tmp\` to find which processes are still using /tmp."
+			/etc/init.d/mysql start &> /dev/null
+			/etc/init.d/httpd start &> /dev/null
+			exit 2
+		fi
+}
+if [ -d "$1" ] && [ $2 -ge 1000 ] && [ $2 -le 10000 ]
+	then
+		location=`echo $1 | grep -oE '\/\w+'`
+		size=$2
+		echo ""
+		echo "###########################################"
+		echo "#              RESIZING /tmp              #"
+		echo "#      <<with a specific location>>       #"
+		echo "#                                         #"  
+		echo "#        mount to a specified size        #" 
+		echo "#            (Max. size 10 GB)            #"
+		echo "#                                         #"
+		echo "#    BROUGHT TO YOU BY ArabHosters.com    #"
+		echo "#         http://ArabHosters.com          #"  
+		echo "###########################################"
+		echo 
+		if [ $(id -u) = "0" ];then
+			echo
+		else
+			echo "Sorry:you must be the root to run this script"
+			exit 0
+		fi
+		if df -h |grep /tmp |grep -v tmpfs &> /dev/null
+			then
+				echo "/tmp new status is :"
+				echo
+				echo -e "Location" '\t' '\t' "Size"
+				echo -e "--------" '\t' '\t' "----"
+				echo -e "$location/tmp" '\t' '\t' "$size MB"
+				echo
+				modify_existing
+		
+			else 
+				echo "/tmp new status is :"
+				echo
+				echo -e "Location" '\t' '\t' "Size"
+				echo -e "--------" '\t' '\t' "----"
+				echo -e "$location/tmp" '\t' '\t' "$size MB"
+				echo
+				create_new
+		fi
+	else
+		help_entry
+fi
